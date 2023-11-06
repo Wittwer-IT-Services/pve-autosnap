@@ -1,0 +1,55 @@
+#!/bin/bash
+
+# Autor: Martin Wittwer
+# Version: 1.0
+# Date: 2023-11-06
+# Description:
+# A simple script that will create a snapshot of all VMs on this host with the tag defined in $TAG
+# The snapshot will be named "<prefix>-YYYYMMDD-HHMMSS"
+#
+# Usage:
+# pve-autosnap [tag] [prefix] [keep]
+
+TAG="autosnap"
+PREFIX="autosnap"
+KEEP=7
+DEBUG=0
+
+# Parse arguments
+if [ "$#" -ge 1 ]; then
+    TAG=$1
+fi
+if [ "$#" -ge 2 ]; then
+    PREFIX=$2
+fi
+if [ "$#" -ge 3 ]; then
+    KEEP=$3
+fi
+
+# Get current date and time in YYYYMMDD-HHMMSS format
+DATE=$(date +"%Y%m%d-%H%M%S")
+
+# Get list of VMs on this node
+vms=$(/usr/sbin/qm list | awk '{print $1}' | grep -v VMID)
+
+# Loop through VMs and create snapshot if tag is present
+for vm in $vms
+do
+    # Check if VM has tag
+    if ! /usr/sbin/qm config $vm | grep tags | grep -q $TAG
+    then
+        [ "${DEBUG}" -eq "1" ] && echo "Skipping $vm - no tag"
+        continue
+    fi
+
+    [ "${DEBUG}" -eq "1" ] && echo "Snappshotting $vm - ${PREFIX}-${DATE}"
+    /usr/sbin/qm snapshot $vm ${PREFIX}-${DATE} > /dev/null
+
+    # Get list of snapshots for this VM, except for newest $KEEP
+    snapshots=$(/usr/sbin/qm listsnapshot $vm | grep ${PREFIX}- | awk '{print $2}' | head -n -${KEEP})
+    for snapshot in $snapshots
+    do
+        [ "${DEBUG}" -eq "1" ] && echo "Deleting snapshot $snapshot for VM $vm"
+        /usr/sbin/qm delsnapshot $vm $snapshot
+    done
+done
